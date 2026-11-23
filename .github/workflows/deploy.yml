@@ -2,7 +2,7 @@
 #  CI/CD — Tareas PWA
 #
 #  Flujo:
-#    1. Integración   → pruebas unitarias + build en Linux, Windows y macOS
+#    1. Integración   → pruebas unitarias + build en Linux y Windows (Node 22 y 24)
 #    2. Construcción  → un único build versionado (artefacto) que se reutiliza
 #    3. Pruebas       → funcionales e2e (5 plataformas) + auditoría Lighthouse
 #    4. Staging       → despliegue a GitHub Pages (rama develop) + verificación
