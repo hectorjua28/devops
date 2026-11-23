@@ -2,7 +2,7 @@
 #  CI/CD — Tareas PWA
 #
 #  Flujo:
-#    1. Integración   → pruebas unitarias + build en Linux, Windows y macOS
+#    1. Integración   → pruebas unitarias + build en Linux y Windows (Node 22 y 24)
 #    2. Construcción  → un único build versionado (artefacto) que se reutiliza
 #    3. Pruebas       → funcionales e2e (5 plataformas) + auditoría Lighthouse
 #    4. Staging       → despliegue a GitHub Pages (rama develop) + verificación
@@ -64,22 +64,6 @@ jobs:
         with:
           name: pruebas-unitarias
           path: test-results/unit-junit.xml
-
-  # macOS corre en paralelo y no bloquea el despliegue: sus runners a veces
-  # tardan mucho en asignarse en cuentas gratuitas.
-  integracion-macos:
-    name: 1 · Integración (macos-latest · Node 22)
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
 
   # ───────────────────────── 2. CONSTRUCCIÓN ─────────────────────────
   construccion:
