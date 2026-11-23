@@ -16,7 +16,7 @@ git commit -m "ci: pipeline CI/CD, pruebas e2e multiplataforma y documentación"
 git push -u origin feature/pipeline-cicd
 ```
 
-El push ya ejecuta el pipeline (integración, construcción, pruebas y Lighthouse). Todavía **no** despliega: eso solo ocurre en `develop`.
+Al abrir el Pull Request se ejecuta el pipeline (integración, construcción, pruebas y Lighthouse). Todavía **no** despliega: eso solo ocurre en `develop`.
 
 > El repositorio debe ser **público** para usar GitHub Pages y environments con aprobación en una cuenta gratuita.
 > Haz los pasos 2 a 4 **antes** de hacer merge a `develop`, o el despliegue fallará.
@@ -59,7 +59,7 @@ Abre un **Pull Request `feature/pipeline-cicd → develop`** (o el de cualquier 
 📸 `04-pr-checks.png`: PR con los checks en verde.
 📸 `05-actions-lista.png`: pestaña **Actions** con las ejecuciones.
 📸 `06-actions-grafo.png`: grafo de jobs de una ejecución en `develop` (integración → construcción → pruebas → deploy → verificación).
-📸 `07-integracion-matriz.png`: los 6 jobs de integración (Ubuntu/Windows/macOS).
+📸 `07-integracion-matriz.png`: los jobs de integración (Ubuntu, Windows y macOS).
 📸 `08-artefactos.png`: sección **Artifacts** al final de la ejecución (`dist`, `tareas-pwa-…zip`, reportes).
 📸 `09-summary.png`: resumen de la ejecución (versión, puntajes Lighthouse, staging verificado).
 

@@ -51,7 +51,7 @@ docs/            informe, guía de configuración y evidencias
 
 | Rama / evento | Resultado |
 |---|---|
-| `feature/*`, PR | Integración (Linux/Windows/macOS) + build + pruebas e2e + Lighthouse |
+| PR desde `feature/*` | Integración (Linux/Windows/macOS) + build + pruebas e2e + Lighthouse |
 | `develop` | Todo lo anterior + **despliegue a staging (GitHub Pages)** + verificación |
 | tag `vX.Y.Z` | Todo lo anterior + **aprobación manual** + GitHub Release con el `.zip` |
 

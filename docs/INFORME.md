@@ -55,7 +55,7 @@ La lógica de negocio (`tasks.js`) está separada de la interfaz (`main.js`) y d
 
 | Rama | Propósito | Qué hace el pipeline |
 |---|---|---|
-| `feature/*` | Desarrollo de cada cambio | Integración (pruebas + build) |
+| `feature/*` | Desarrollo de cada cambio | CI completa al abrir el PR (sin despliegue) |
 | `develop` | Integración y **ambiente de pruebas** | CI completa + **despliegue a staging** + verificación |
 | `main` | Código estable, listo para liberar | CI completa (protegida: solo por PR) |
 | Tag `vX.Y.Z` | **Versión validada** | CI completa + **aprobación manual** + GitHub Release |
@@ -80,7 +80,7 @@ Reglas de protección configuradas en `main` y `develop`: requieren Pull Request
 
 ```mermaid
 flowchart LR
-  A[push / PR] --> B["1 · Integración<br/>Linux · Windows · macOS<br/>Node 22 y 24"]
+  A[push / PR] --> B["1 · Integración<br/>Linux · Windows (Node 22 y 24)<br/>+ macOS en paralelo"]
   B --> C["2 · Construcción<br/>build versionado + zip"]
   C --> D["3 · Pruebas funcionales<br/>5 plataformas"]
   C --> E["3 · Lighthouse"]
@@ -96,7 +96,7 @@ flowchart LR
 
 | # | Job | Descripción |
 |---|---|---|
-| 1 | **Integración** | Matriz de 6 combinaciones (3 sistemas operativos × 2 versiones de Node). Instala dependencias con `npm ci`, ejecuta las pruebas unitarias y un build de verificación. |
+| 1 | **Integración** | Matriz Linux y Windows × Node 22 y 24, más un job de macOS en paralelo. Instala dependencias con `npm ci`, ejecuta las pruebas unitarias y un build de verificación. |
 | 2 | **Construcción** | Genera **un único build** con versión (`1.0.0-rc.N` en staging, `1.0.0` en producción), commit y ambiente incrustados. Lo entrega como artefactos `dist` y `tareas-pwa-<versión>.zip`, junto con `build-info.json`. |
 | 3 | **Pruebas funcionales** | Playwright ejecuta 14 pruebas sobre **ese mismo artefacto** en Chromium, Firefox, WebKit (Safari), Pixel 7 e iPhone 14. Publica el reporte HTML con capturas. |
 | 3 | **Lighthouse** | Audita rendimiento, accesibilidad, buenas prácticas y SEO. El pipeline falla si accesibilidad o buenas prácticas bajan de 90. |
@@ -108,7 +108,7 @@ flowchart LR
 
 1. **Disparo automático:** cada `push` a `develop` ejecuta el pipeline sin intervención manual.
 2. **Build once, deploy many:** la aplicación se construye **una sola vez** por ejecución. Las pruebas funcionales, Lighthouse y el despliegue usan exactamente el mismo artefacto, de modo que lo que se prueba es lo que se publica.
-3. **Compuertas de calidad:** el despliegue solo ocurre si pasan la integración en los 3 sistemas operativos, las pruebas funcionales en las 5 plataformas y los umbrales de Lighthouse (`needs:` en el YAML).
+3. **Compuertas de calidad:** el despliegue solo ocurre si pasan la integración en Linux y Windows (macOS se reporta en paralelo), las pruebas funcionales en las 5 plataformas y los umbrales de Lighthouse (`needs:` en el YAML).
 4. **Ambiente de pruebas:** la versión candidata (`-rc.N`) se publica en GitHub Pages y queda disponible por HTTPS, requisito de los service workers.
 5. **Verificación posterior al despliegue:** el pipeline comprueba que la URL pública sirve el commit desplegado y vuelve a correr las pruebas funcionales sobre el sitio real.
 6. **Liberación controlada:** para producción se crea un tag `vX.Y.Z` desde `main`. El job queda **en espera de aprobación** (*Required reviewers*). El revisor valida el staging (pruebas, Lighthouse, instalación en dispositivos) y aprueba. Entonces se genera el **Release** con el paquete listo para publicarse en cualquier hosting estático.
@@ -173,10 +173,12 @@ Ver `docs/evidencias/`.
 | 4 | Al probar el build en subruta con `vite preview` todas las pruebas fallaban | `vite preview` también necesita la misma `base` | En CI se usa `E2E_USE_DIST=1` (sirve el artefacto) y para staging `E2E_BASE_URL` (prueba la URL real) |
 | 5 | El modo offline/service worker no es confiable en Firefox y WebKit dentro de Playwright | Limitación de la herramienta de automatización, no de la app | Las pruebas de SW/offline corren en motores Chromium (escritorio y Android). En Safari/iOS se documenta con captura en un dispositivo real |
 | 6 | Lighthouse ya no tiene categoría "PWA" | Se eliminó en Lighthouse 12 | Los requisitos PWA se validan con pruebas propias (`pwa.spec.js`) y Lighthouse audita las otras 4 categorías |
-| 7 | Vitest 5 no soporta Node 20 (y Node 20 llegó a fin de vida) | Requisito `engines` de las herramientas | Matriz con Node 22 y 24 y `engines: >=22.12` en `package.json` |
-| 8 | Justo después de desplegar, la URL podía servir aún la versión anterior | Propagación/caché de GitHub Pages | Paso que consulta `build-info.json` hasta encontrar el commit nuevo antes de las pruebas de verificación |
-| 9 | _[Ej.: "Branch develop is not allowed to deploy to github-pages"]_ | _Regla de ramas del environment `github-pages`_ | _Settings → Environments → github-pages → agregar `develop`_ |
-| 10 | _[Agrega aquí los errores reales que te salgan en Actions]_ | | |
+| 7 | Los jobs de macOS quedaban más de 15 minutos en cola y detenían todo el pipeline | Disponibilidad de runners macOS en cuentas gratuitas | macOS pasó a un job paralelo (`integracion-macos`) que no bloquea el despliegue |
+| 8 | Cada push a una rama `feature/` ejecutaba el pipeline dos veces (push + PR) | Ambos eventos estaban activos | `push` solo en `main`, `develop` y tags; las ramas `feature/` se validan por PR |
+| 9 | Vitest 5 no soporta Node 20 (y Node 20 llegó a fin de vida) | Requisito `engines` de las herramientas | Matriz con Node 22 y 24 y `engines: >=22.12` en `package.json` |
+| 10 | Justo después de desplegar, la URL podía servir aún la versión anterior | Propagación/caché de GitHub Pages | Paso que consulta `build-info.json` hasta encontrar el commit nuevo antes de las pruebas de verificación |
+| 11 | _[Ej.: "Branch develop is not allowed to deploy to github-pages"]_ | _Regla de ramas del environment `github-pages`_ | _Settings → Environments → github-pages → agregar `develop`_ |
+| 12 | _[Agrega aquí los errores reales que te salgan en Actions]_ | | |
 
 ## 9. Verificación antes de la liberación a producción
 

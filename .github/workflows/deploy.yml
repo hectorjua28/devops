@@ -12,7 +12,7 @@ name: CI/CD Tareas PWA
 
 on:
   push:
-    branches: [main, develop, 'feature/**']
+    branches: [main, develop]      # las ramas feature/* se validan por Pull Request
     tags: ['v*.*.*']
   pull_request:
     branches: [main, develop]
@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
         node: [22, 24]
     steps:
       - name: Descargar código
@@ -64,6 +64,22 @@ jobs:
         with:
           name: pruebas-unitarias
           path: test-results/unit-junit.xml
+
+  # macOS corre en paralelo y no bloquea el despliegue: sus runners a veces
+  # tardan mucho en asignarse en cuentas gratuitas.
+  integracion-macos:
+    name: 1 · Integración (macos-latest · Node 22)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
 
   # ───────────────────────── 2. CONSTRUCCIÓN ─────────────────────────
   construccion:
