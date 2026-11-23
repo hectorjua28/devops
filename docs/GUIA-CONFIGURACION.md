@@ -59,7 +59,7 @@ Abre un **Pull Request `feature/pipeline-cicd → develop`** (o el de cualquier 
 📸 `04-pr-checks.png`: PR con los checks en verde.
 📸 `05-actions-lista.png`: pestaña **Actions** con las ejecuciones.
 📸 `06-actions-grafo.png`: grafo de jobs de una ejecución en `develop` (integración → construcción → pruebas → deploy → verificación).
-📸 `07-integracion-matriz.png`: los jobs de integración (Ubuntu, Windows y macOS).
+📸 `07-integracion-matriz.png`: los jobs de integración (Ubuntu y Windows, Node 22 y 24).
 📸 `08-artefactos.png`: sección **Artifacts** al final de la ejecución (`dist`, `tareas-pwa-…zip`, reportes).
 📸 `09-summary.png`: resumen de la ejecución (versión, puntajes Lighthouse, staging verificado).
 
