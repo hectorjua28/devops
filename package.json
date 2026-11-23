@@ -8,13 +8,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report",
+    "lighthouse": "npx -y @lhci/cli@0.15 autorun",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@fontsource-variable/outfit": "^5.2.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

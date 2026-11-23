@@ -1,0 +1,347 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  CI/CD — Tareas PWA
+#
+#  Flujo:
+#    1. Integración   → pruebas unitarias + build en Linux, Windows y macOS
+#    2. Construcción  → un único build versionado (artefacto) que se reutiliza
+#    3. Pruebas       → funcionales e2e (5 plataformas) + auditoría Lighthouse
+#    4. Staging       → despliegue a GitHub Pages (rama develop) + verificación
+#    5. Producción    → tag vX.Y.Z → aprobación manual → GitHub Release
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI/CD Tareas PWA
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Evita despliegues simultáneos sobre la misma rama
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  # ───────────────────────── 1. INTEGRACIÓN CONTINUA ─────────────────────────
+  integracion:
+    name: 1 · Integración (${{ matrix.os }} · Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22, 24]
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v7
+
+      - name: Configurar Node ${{ matrix.node }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Pruebas unitarias (Vitest)
+        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/unit-junit.xml
+
+      - name: Build de verificación
+        run: npm run build
+
+      - name: Publicar resultados de pruebas unitarias
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
+        uses: actions/upload-artifact@v7
+        with:
+          name: pruebas-unitarias
+          path: test-results/unit-junit.xml
+
+  # ───────────────────────── 2. CONSTRUCCIÓN ─────────────────────────
+  construccion:
+    name: 2 · Construcción del artefacto
+    needs: integracion
+    runs-on: ubuntu-latest
+    outputs:
+      ambiente: ${{ steps.meta.outputs.ambiente }}
+      version: ${{ steps.meta.outputs.version }}
+      artefacto: ${{ steps.meta.outputs.artefacto }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Definir ambiente y versión
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            AMBIENTE=production; VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ "$GITHUB_REF" == refs/heads/develop ]]; then
+            AMBIENTE=staging; VERSION="${VERSION}-rc.${GITHUB_RUN_NUMBER}"
+          else
+            AMBIENTE=ci; VERSION="${VERSION}-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "ambiente=$AMBIENTE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "artefacto=tareas-pwa-${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "### 📦 Build: \`$VERSION\` · ambiente \`$AMBIENTE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - run: npm ci
+
+      - name: Construir (base relativa, funciona en cualquier ruta)
+        run: npm run build
+        env:
+          VITE_BASE: ./
+          VITE_APP_ENV: ${{ steps.meta.outputs.ambiente }}
+          VITE_APP_VERSION: ${{ steps.meta.outputs.version }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Agregar metadatos del build
+        shell: bash
+        run: |
+          cat > dist/build-info.json <<EOF
+          {
+            "version": "${{ steps.meta.outputs.version }}",
+            "ambiente": "${{ steps.meta.outputs.ambiente }}",
+            "commit": "${{ github.sha }}",
+            "rama": "${{ github.ref_name }}",
+            "fecha": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "ejecucion": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          cat dist/build-info.json
+
+      - name: Empaquetar versión (.zip)
+        run: cd dist && zip -r "../${{ steps.meta.outputs.artefacto }}.zip" .
+
+      - name: Entregar artefacto (dist)
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          retention-days: 30
+
+      - name: Entregar artefacto (zip de la versión)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.artefacto }}
+          path: ${{ steps.meta.outputs.artefacto }}.zip
+          retention-days: 90
+
+  # ───────────────────────── 3a. PRUEBAS FUNCIONALES ─────────────────────────
+  pruebas-funcionales:
+    name: 3 · Pruebas funcionales (${{ matrix.proyecto }})
+    needs: construccion
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { proyecto: chromium, navegador: chromium }
+          - { proyecto: firefox, navegador: firefox }
+          - { proyecto: webkit, navegador: webkit }
+          - { proyecto: mobile-chrome, navegador: chromium }
+          - { proyecto: mobile-safari, navegador: webkit }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Descargar el artefacto construido
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Instalar navegador ${{ matrix.navegador }}
+        run: npx playwright install --with-deps ${{ matrix.navegador }}
+
+      - name: Ejecutar pruebas e2e
+        run: npx playwright test --project=${{ matrix.proyecto }}
+        env:
+          E2E_USE_DIST: '1'
+
+      - name: Publicar reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-e2e-${{ matrix.proyecto }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 30
+
+  # ───────────────────────── 3b. AUDITORÍA LIGHTHOUSE ─────────────────────────
+  lighthouse:
+    name: 3 · Auditoría Lighthouse
+    needs: construccion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Ejecutar Lighthouse CI
+        run: npx -y @lhci/cli@0.15 autorun
+
+      - name: Resumen de puntajes
+        if: always()
+        run: |
+          node -e '
+            const m = require("./lighthouse-report/manifest.json");
+            const s = m[0].summary;
+            let out = "### 🔦 Lighthouse\n| Categoría | Puntaje |\n|---|---|\n";
+            for (const [k, v] of Object.entries(s)) out += `| ${k} | ${Math.round(v * 100)} |\n`;
+            console.log(out);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, out);
+          '
+
+      - name: Publicar reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-lighthouse
+          path: lighthouse-report/
+
+  # ───────────────────────── 4a. DESPLIEGUE A STAGING ─────────────────────────
+  deploy-staging:
+    name: 4 · Despliegue a staging (GitHub Pages)
+    needs: [construccion, pruebas-funcionales, lighthouse]
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+      - name: Desplegar
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  # ───────────────────────── 4b. VERIFICACIÓN DE STAGING ─────────────────────────
+  verificacion-staging:
+    name: 4 · Verificación del ambiente de pruebas
+    needs: [construccion, deploy-staging]
+    runs-on: ubuntu-latest
+    env:
+      URL: ${{ needs.deploy-staging.outputs.url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Esperar a que la nueva versión esté publicada
+        shell: bash
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "${URL}build-info.json?nocache=$RANDOM" | grep -q "${{ github.sha }}"; then
+              echo "✅ Versión ${{ needs.construccion.outputs.version }} publicada en $URL"; exit 0
+            fi
+            echo "Esperando propagación de GitHub Pages ($i/30)..."; sleep 10
+          done
+          echo "❌ La versión no apareció en $URL"; exit 1
+
+      - name: Prueba de humo (smoke test)
+        shell: bash
+        run: |
+          for f in "" manifest.webmanifest sw.js icons/icon-192.png icons/icon-512.png; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${URL}${f}")
+            echo "${URL}${f} → $code"; [ "$code" = "200" ] || exit 1
+          done
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Pruebas funcionales contra staging
+        run: npx playwright test --project=chromium --project=mobile-chrome
+        env:
+          E2E_BASE_URL: ${{ env.URL }}
+
+      - name: Resumen
+        if: success()
+        run: |
+          {
+            echo "### ✅ Staging verificado"
+            echo "- URL: $URL"
+            echo "- Versión: \`${{ needs.construccion.outputs.version }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar reporte
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reporte-verificacion-staging
+          path: playwright-report/
+
+  # ───────────────────────── 5. LIBERACIÓN A PRODUCCIÓN ─────────────────────────
+  release-produccion:
+    name: 5 · Liberación de versión validada
+    needs: [construccion, pruebas-funcionales, lighthouse]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: production   # Configurar "Required reviewers" → aprobación manual
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+    steps:
+      - name: Descargar versión validada
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.construccion.outputs.artefacto }}
+
+      - name: Crear GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "${{ needs.construccion.outputs.artefacto }}.zip" \
+            --repo "${{ github.repository }}" \
+            --title "Tareas PWA ${{ github.ref_name }}" \
+            --generate-notes \
+            --verify-tag
+          echo "### 🚀 Versión ${{ github.ref_name }} liberada" >> "$GITHUB_STEP_SUMMARY"

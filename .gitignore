@@ -8,3 +8,10 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+
+# Reportes de pruebas (se publican como artefactos en GitHub Actions)
+playwright-report/
+test-results/
+blob-report/
+lighthouse-report/
+.lighthouseci/
