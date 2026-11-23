@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => {
     base: env.VITE_BASE || process.env.VITE_BASE || '/',
     test: {
       environment: 'node',
+      // Las pruebas e2e (tests/e2e) las ejecuta Playwright, no Vitest
+      include: ['tests/**/*.test.js'],
+      exclude: ['tests/e2e/**', 'node_modules/**'],
     },
   };
 });
